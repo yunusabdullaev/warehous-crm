@@ -1,0 +1,13 @@
+{
+    "id": "evt_test_payment_failed_001",
+    "type": "invoice.payment_failed",
+    "data": {
+        "object": {
+            "id": "inv_test_fail_001",
+            "object": "invoice",
+            "customer": {
+                "id": "cus_test_TENANT_ID"
+            }
+        }
+    }
+}

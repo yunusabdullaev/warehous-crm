@@ -1,0 +1,19 @@
+# Prometheus scrape configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert-rules.yml"
+
+scrape_configs:
+  - job_name: "wms-backend"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["backend:3000"]
+        labels:
+          service: "wms-backend"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

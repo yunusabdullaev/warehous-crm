@@ -1,0 +1,53 @@
+# ═══════════════════════════════════════════════════
+# Warehouse CRM — Prometheus Alert Rules
+# ═══════════════════════════════════════════════════
+
+groups:
+  - name: wms_alerts
+    rules:
+      # ── High 5xx error rate ──
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "More than 5% of requests are failing with 5xx errors for the last 5 minutes."
+
+      # ── Backend target down ──
+      - alert: BackendDown
+        expr: up{job="wms-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "WMS backend is down"
+          description: "The backend target has been unreachable for more than 2 minutes."
+
+      # ── High request latency ──
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p99 latency ({{ $value | humanizeDuration }})"
+          description: "99th percentile request latency is above 2 seconds for the last 5 minutes."
+
+      # ── High memory usage ──
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="wms-backend"} > 512 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend memory usage above 512MB"
+          description: "Backend process is consuming {{ $value | humanize1024 }}B of memory."

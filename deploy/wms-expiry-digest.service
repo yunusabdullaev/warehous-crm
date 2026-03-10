@@ -1,0 +1,17 @@
+[Unit]
+Description=WMS Expiry Digest — daily Telegram alert for expiring lots
+After=network.target wms.service
+
+[Service]
+Type=oneshot
+User=wms
+Group=wms
+WorkingDirectory=/opt/wms
+EnvironmentFile=/opt/wms/.env
+ExecStart=/opt/wms/main expiry-digest
+TimeoutStartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

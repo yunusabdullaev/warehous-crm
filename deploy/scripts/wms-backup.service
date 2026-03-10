@@ -1,0 +1,15 @@
+[Unit]
+Description=Warehouse CRM MongoDB Backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/wms/deploy/.env
+ExecStart=/opt/wms/deploy/scripts/backup-mongo.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wms-backup
+
+[Install]
+WantedBy=multi-user.target

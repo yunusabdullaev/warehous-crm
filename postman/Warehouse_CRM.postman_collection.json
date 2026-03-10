@@ -1,0 +1,503 @@
+{
+  "info": {
+    "_postman_id": "warehouse-crm-v1",
+    "name": "Warehouse CRM API",
+    "description": "Warehouse CRM (WMS) Backend API — MVP\n\nUsage:\n1. Run 'Auth / Login' request first\n2. The token is auto-saved to {{token}} variable\n3. All other requests use Bearer {{token}} automatically",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "product_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "location_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\",\n  \"role\": \"admin\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.token) {",
+                  "    pm.collectionVariables.set('token', json.token);",
+                  "    console.log('Token saved to collection variable');",
+                  "}",
+                  "if (json.user && json.user.id) {",
+                  "    console.log('User ID: ' + json.user.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "Create Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('product_id', json.id);",
+                  "    console.log('Product ID saved: ' + json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"WH-001\",\n  \"name\": \"Widget Alpha\",\n  \"description\": \"Standard warehouse widget\",\n  \"unit\": \"pcs\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/products",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"]
+            }
+          }
+        },
+        {
+          "name": "List Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Product By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Widget Alpha v2\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "{{product_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Locations",
+      "item": [
+        {
+          "name": "Create Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('location_id', json.id);",
+                  "    console.log('Location ID saved: ' + json.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"A-R1-S1\",\n  \"name\": \"Zone A Rack 1 Shelf 1\",\n  \"zone\": \"A\",\n  \"aisle\": \"1\",\n  \"rack\": \"R1\",\n  \"level\": \"S1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "locations"]
+            }
+          }
+        },
+        {
+          "name": "List Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "locations"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Location By ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Location Name\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Location",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "locations", "{{location_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inbound",
+      "item": [
+        {
+          "name": "Create Inbound",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"location_id\": \"{{location_id}}\",\n  \"quantity\": 500,\n  \"reference\": \"PO-2024-001\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/inbound",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "inbound"]
+            }
+          }
+        },
+        {
+          "name": "List Inbound",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/inbound?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "inbound"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Outbound",
+      "item": [
+        {
+          "name": "Create Outbound",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": \"{{product_id}}\",\n  \"location_id\": \"{{location_id}}\",\n  \"quantity\": 100,\n  \"reference\": \"SO-2024-001\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/outbound",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "outbound"]
+            }
+          }
+        },
+        {
+          "name": "List Outbound",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/outbound?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "outbound"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stock",
+      "item": [
+        {
+          "name": "List All Stock",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/stock?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "stock"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stock By Product",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/stock/product/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "stock", "product", "{{product_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Stock By Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/stock/location/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "stock", "location", "{{location_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "History",
+      "item": [
+        {
+          "name": "List History",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/history?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "History by Entity Type",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/history?entity_type=inbound&page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "history"],
+              "query": [
+                { "key": "entity_type", "value": "inbound" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["metrics"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

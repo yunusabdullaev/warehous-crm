@@ -1,0 +1,11 @@
+zone,rack,level
+A,R1,L1
+A,R1,L2
+A,R2,L1
+B,R1,L1
+B,R1,L2
+B,R2,L1
+C,R1,L1
+C,R1,L2
+,R3,L1
+D,,L2

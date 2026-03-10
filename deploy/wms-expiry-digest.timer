@@ -1,0 +1,12 @@
+[Unit]
+Description=WMS Expiry Digest Timer — runs daily at 08:30 server time
+Requires=wms-expiry-digest.service
+
+[Timer]
+# Daily at 08:30 server local time
+OnCalendar=*-*-* 08:30:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

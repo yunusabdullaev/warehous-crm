@@ -1,0 +1,25 @@
+{
+    "id": "evt_test_sub_deleted_001",
+    "type": "customer.subscription.deleted",
+    "data": {
+        "object": {
+            "id": "sub_test_pro_001",
+            "object": "subscription",
+            "customer": {
+                "id": "cus_test_TENANT_ID"
+            },
+            "status": "canceled",
+            "cancel_at_period_end": false,
+            "current_period_end": 1999999999,
+            "items": {
+                "data": [
+                    {
+                        "price": {
+                            "id": "STRIPE_PRICE_PRO"
+                        }
+                    }
+                ]
+            }
+        }
+    }
+}

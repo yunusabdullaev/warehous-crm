@@ -1,0 +1,61 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: warehouse-crm-app
+    ports:
+      - "3003:3000"
+    environment:
+      - APP_PORT=3000
+      - MONGO_URI=mongodb://mongodb:27017
+      - DB_NAME=warehouse_crm
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-key-change-in-production}
+      - JWT_EXPIRY_HOURS=24
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - warehouse-net
+
+  mongodb:
+    image: mongo:7
+    container_name: warehouse-crm-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh --quiet --norc localhost:27017/test || exit 1" ]
+      interval: 15s
+      timeout: 60s
+      retries: 10
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - warehouse-net
+
+volumes:
+  mongo_data:
+
+
+networks:
+  warehouse-net:
+    driver: bridge
