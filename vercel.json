@@ -14,5 +14,7 @@
         "api/*.go": {
             "runtime": "@vercel/go@3.2.4"
         }
-    }
+    },
+    "buildCommand": "cd frontend && npm install && npm run build",
+    "outputDirectory": "frontend/out"
 }
