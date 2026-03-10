@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
@@ -45,10 +46,8 @@ var (
 	initOnce sync.Once
 )
 
-// Handler is the entry point for Vercel Serverless Functions
 func Handler(w http.ResponseWriter, r *http.Request) {
 	initOnce.Do(func() {
-		// Initialize app
 		logger.Init()
 		cfg := configs.LoadConfig()
 
@@ -59,9 +58,6 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 		db := mongoClient.Database(cfg.DBName)
 		database.EnsureIndexes(db)
-
-		// Setup Handlers (copied from main.go logic)
-		// We re-initialize the full app structure here for serverless context
 
 		authRepo := auth.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "users"))
 		productRepo := product.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "products"))
@@ -202,51 +198,143 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		adminOnly := middleware.RequireRoles("admin")
 		superOnly := middleware.RequireRoles("superadmin")
 
-		// ── Routes Registration ──
+		// Register ALL routes as in main.go
 		tenantsR := protected.Group("/tenants", superOnly)
 		tenantsR.Get("/", tenantHandler.List)
+		tenantsR.Get("/:id", tenantHandler.GetByID)
 		tenantsR.Post("/", tenantHandler.Create)
-		// ... (remaining routes minimized for brevity, same as main.go)
+		tenantsR.Put("/:id", tenantHandler.Update)
+		tenantsR.Delete("/:id", tenantHandler.Delete)
+		tenantsR.Get("/:id/usage", tenantHandler.GetUsage)
+		tenantsR.Put("/:id/plan", tenantHandler.UpdatePlan)
 
-		api.Get("/health", func(c *fiber.Ctx) error {
-			return c.JSON(fiber.Map{"status": "ok", "vercel": true})
-		})
+		billingR := protected.Group("/billing", adminOnly)
+		billingR.Post("/checkout-session", billingHandler.CreateCheckoutSession)
+		billingR.Post("/portal-session", billingHandler.CreatePortalSession)
+		billingR.Get("/status", billingHandler.GetBillingStatus)
 
-		// Register ALL routes as in main.go
-		// To save space and ensure parity, we should ideally extract route registration to a shared package.
-		// For now, we'll register the most critical ones and advise on shared package later if needed.
-
-		// Re-registering all to ensure Vercel works fully:
-		auth.RegisterProtectedRoutes(protected, authHandler)
-
-		// Warehouses
 		whR := protected.Group("/warehouses", adminOnly)
 		whR.Get("/", warehouseHandler.List)
+		whR.Get("/:id", warehouseHandler.GetByID)
 		whR.Post("/", warehouseHandler.Create)
+		whR.Put("/:id", warehouseHandler.Update)
+		whR.Delete("/:id", warehouseHandler.Delete)
 
-		// Products
 		prR := protected.Group("/products")
 		prR.Get("/", allRoles, productHandler.List)
+		prR.Get("/:id", allRoles, productHandler.GetByID)
 		prR.Post("/", adminOnly, productHandler.Create)
+		prR.Put("/:id", adminOnly, productHandler.Update)
+		prR.Delete("/:id", adminOnly, productHandler.Delete)
 
-		// Orders
+		locR := protected.Group("/locations")
+		locR.Get("/", allRoles, locationHandler.List)
+		locR.Get("/:id", allRoles, locationHandler.GetByID)
+		locR.Post("/", adminOnly, locationHandler.Create)
+		locR.Put("/:id", adminOnly, locationHandler.Update)
+		locR.Delete("/:id", adminOnly, locationHandler.Delete)
+		locR.Get("/:id/qr", adminOnly, qrlabelHandler.QRCode)
+		locR.Get("/:id/label", adminOnly, qrlabelHandler.Label)
+
+		inR := protected.Group("/inbound", allRoles)
+		inR.Post("/", inboundHandler.Create)
+		inR.Get("/", inboundHandler.List)
+		inR.Get("/:id", inboundHandler.GetByID)
+		inR.Post("/:id/reverse", adminOperator, inboundHandler.Reverse)
+
+		outR := protected.Group("/outbound", adminOperator)
+		outR.Post("/", outboundHandler.Create)
+		outR.Get("/", outboundHandler.List)
+		outR.Get("/:id", outboundHandler.GetByID)
+		outR.Post("/:id/reverse", outboundHandler.Reverse)
+
+		adjR := protected.Group("/adjustments", adminOperator)
+		adjR.Post("/", adjustmentHandler.Create)
+		adjR.Get("/", adjustmentHandler.List)
+
 		orR := protected.Group("/orders")
 		orR.Get("/", allRoles, orderHandler.List)
+		orR.Get("/:id", allRoles, orderHandler.GetByID)
 		orR.Post("/", adminOperator, orderHandler.Create)
+		orR.Put("/:id", adminOperator, orderHandler.Update)
+		orR.Post("/:id/confirm", adminOperator, orderHandler.Confirm)
+		orR.Post("/:id/cancel", adminOperator, orderHandler.Cancel)
+		orR.Post("/:id/start-pick", adminOperator, orderHandler.StartPick)
+		orR.Post("/:id/ship", adminOperator, orderHandler.Ship)
+		orR.Get("/:id/pick-tasks", allRoles, pickingHandler.GetTasksByOrder)
+		orR.Get("/:id/picklist.pdf", allRoles, orderDocHandler.PickListPDF)
+		orR.Get("/:id/deliverynote.pdf", adminOperator, orderDocHandler.DeliveryNotePDF)
+		orR.Get("/:id/label", allRoles, orderDocHandler.LabelPDF)
 
-		// Stock
+		pickR := protected.Group("/pick-tasks")
+		pickR.Get("/my", allRoles, pickingHandler.MyTasks)
+		pickR.Get("/:id", allRoles, pickingHandler.GetTask)
+		pickR.Post("/:id/assign", adminOperator, pickingHandler.Assign)
+		pickR.Post("/:id/scan", allRoles, pickingHandler.Scan)
+
+		resR := protected.Group("/reservations", adminOperator)
+		resR.Get("/", reservationHandler.List)
+		resR.Post("/release", reservationHandler.Release)
+
 		stR := protected.Group("/stock", allRoles)
 		stR.Get("/", stockHandler.ListAll)
+		stR.Get("/product/:id", stockHandler.GetByProduct)
+		stR.Get("/location/:id", stockHandler.GetByLocation)
 
-		// Dashboard
-		dbR := protected.Group("/dashboard", adminOperator)
-		dbR.Get("/summary", dashboardHandler.Summary)
+		histR := protected.Group("/history", adminOperator)
+		histR.Get("/", historyHandler.List)
 
-		// Reports
-		rpR := protected.Group("/reports", adminOnly)
-		rpR.Get("/movements", reportsHandler.Movements)
+		auth.RegisterProtectedRoutes(protected, authHandler)
+
+		usR := protected.Group("/users", adminOnly)
+		usR.Get("/", authHandler.List)
+		usR.Get("/:id", authHandler.GetByID)
+		usR.Put("/:id", authHandler.Update)
+		usR.Delete("/:id", authHandler.Delete)
+		usR.Post("/:id/reset-token", authHandler.GenerateResetToken)
+		usR.Post("/:id/revoke-sessions", authHandler.RevokeUserSessions)
+
+		dashR := protected.Group("/dashboard", adminOperator)
+		dashR.Get("/summary", dashboardHandler.Summary)
+
+		repR := protected.Group("/reports", adminOnly)
+		repR.Get("/movements", reportsHandler.Movements)
+		repR.Get("/stock", reportsHandler.StockReport)
+		repR.Get("/orders", reportsHandler.OrderReport)
+		repR.Get("/picking", reportsHandler.PickingReport)
+		repR.Get("/returns", reportsHandler.ReturnsReport)
+		repR.Get("/expiry", reportsHandler.ExpiryReport)
+
+		impR := protected.Group("/import", adminOnly)
+		impR.Post("/products", csvioHandler.ImportProducts)
+		impR.Post("/locations", csvioHandler.ImportLocations)
+
+		expR := protected.Group("/export", adminOnly)
+		expR.Get("/products", csvioHandler.ExportProducts)
+		expR.Get("/locations", csvioHandler.ExportLocations)
+
+		setR := protected.Group("/settings", adminOnly)
+		setR.Get("/notifications", notifyHandler.Get)
+		setR.Put("/notifications", notifyHandler.Update)
+		setR.Post("/notifications/test", notifyHandler.Test)
+
+		retR := protected.Group("/returns")
+		retR.Get("/", allRoles, returnsHandler.List)
+		retR.Get("/:id", allRoles, returnsHandler.GetByID)
+		retR.Post("/", adminOperator, returnsHandler.Create)
+		retR.Post("/:id/receive", adminOperator, returnsHandler.Receive)
+		retR.Post("/:id/cancel", adminOperator, returnsHandler.Cancel)
+		retR.Get("/:id/note.pdf", allRoles, returndocHandler.NotePDF)
+
+		lotR := protected.Group("/lots")
+		lotR.Get("/", allRoles, lotHandler.List)
+		lotR.Get("/:id", allRoles, lotHandler.GetByID)
+		lotR.Post("/", adminOperator, lotHandler.Create)
+
+		api.Get("/health", func(c *fiber.Ctx) error {
+			return c.JSON(fiber.Map{"status": "ok", "vercel": true, "time": time.Now().Format(time.RFC3339)})
+		})
 	})
 
-	// Bridge Fiber to Net/HTTP
 	adaptor.FiberApp(app)(w, r)
 }
