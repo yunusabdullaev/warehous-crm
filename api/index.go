@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"sync"
@@ -168,6 +169,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		)
 		billingHandler := billing.NewHandler(billingSvc)
 
+		// Create Fiber app
 		app = fiber.New()
 		app.Use(recover.New())
 
@@ -182,6 +184,14 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		}))
 
 		api := app.Group("/api/v1")
+
+		// Ensure default data exists
+		ctxStartup, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelStartup()
+		_, _ = tenantSvc.EnsureDefault(ctxStartup)
+		_, _ = warehouseSvc.EnsureDefault(ctxStartup)
+
+		// Public
 		auth.RegisterPublicRoutes(api, authHandler)
 		api.Post("/webhooks/stripe", billingHandler.Webhook)
 
@@ -198,7 +208,9 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		adminOnly := middleware.RequireRoles("admin")
 		superOnly := middleware.RequireRoles("superadmin")
 
-		// Register ALL routes as in main.go
+		// FULL ROUTES REGISTRATION
+
+		// Tenants
 		tenantsR := protected.Group("/tenants", superOnly)
 		tenantsR.Get("/", tenantHandler.List)
 		tenantsR.Get("/:id", tenantHandler.GetByID)
@@ -208,11 +220,13 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		tenantsR.Get("/:id/usage", tenantHandler.GetUsage)
 		tenantsR.Put("/:id/plan", tenantHandler.UpdatePlan)
 
+		// Billing
 		billingR := protected.Group("/billing", adminOnly)
 		billingR.Post("/checkout-session", billingHandler.CreateCheckoutSession)
 		billingR.Post("/portal-session", billingHandler.CreatePortalSession)
 		billingR.Get("/status", billingHandler.GetBillingStatus)
 
+		// Warehouses
 		whR := protected.Group("/warehouses", adminOnly)
 		whR.Get("/", warehouseHandler.List)
 		whR.Get("/:id", warehouseHandler.GetByID)
@@ -220,6 +234,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		whR.Put("/:id", warehouseHandler.Update)
 		whR.Delete("/:id", warehouseHandler.Delete)
 
+		// Products
 		prR := protected.Group("/products")
 		prR.Get("/", allRoles, productHandler.List)
 		prR.Get("/:id", allRoles, productHandler.GetByID)
@@ -227,6 +242,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		prR.Put("/:id", adminOnly, productHandler.Update)
 		prR.Delete("/:id", adminOnly, productHandler.Delete)
 
+		// Locations
 		locR := protected.Group("/locations")
 		locR.Get("/", allRoles, locationHandler.List)
 		locR.Get("/:id", allRoles, locationHandler.GetByID)
@@ -236,22 +252,26 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		locR.Get("/:id/qr", adminOnly, qrlabelHandler.QRCode)
 		locR.Get("/:id/label", adminOnly, qrlabelHandler.Label)
 
+		// Inbound
 		inR := protected.Group("/inbound", allRoles)
 		inR.Post("/", inboundHandler.Create)
 		inR.Get("/", inboundHandler.List)
 		inR.Get("/:id", inboundHandler.GetByID)
 		inR.Post("/:id/reverse", adminOperator, inboundHandler.Reverse)
 
+		// Outbound
 		outR := protected.Group("/outbound", adminOperator)
 		outR.Post("/", outboundHandler.Create)
 		outR.Get("/", outboundHandler.List)
 		outR.Get("/:id", outboundHandler.GetByID)
 		outR.Post("/:id/reverse", outboundHandler.Reverse)
 
+		// Adjustments
 		adjR := protected.Group("/adjustments", adminOperator)
 		adjR.Post("/", adjustmentHandler.Create)
 		adjR.Get("/", adjustmentHandler.List)
 
+		// Orders
 		orR := protected.Group("/orders")
 		orR.Get("/", allRoles, orderHandler.List)
 		orR.Get("/:id", allRoles, orderHandler.GetByID)
@@ -266,37 +286,42 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		orR.Get("/:id/deliverynote.pdf", adminOperator, orderDocHandler.DeliveryNotePDF)
 		orR.Get("/:id/label", allRoles, orderDocHandler.LabelPDF)
 
-		pickR := protected.Group("/pick-tasks")
-		pickR.Get("/my", allRoles, pickingHandler.MyTasks)
-		pickR.Get("/:id", allRoles, pickingHandler.GetTask)
-		pickR.Post("/:id/assign", adminOperator, pickingHandler.Assign)
-		pickR.Post("/:id/scan", allRoles, pickingHandler.Scan)
+		// Pick Tasks
+		pckR := protected.Group("/pick-tasks")
+		pckR.Get("/my", allRoles, pickingHandler.MyTasks)
+		pckR.Get("/:id", allRoles, pickingHandler.GetTask)
+		pckR.Post("/:id/assign", adminOperator, pickingHandler.Assign)
+		pckR.Post("/:id/scan", allRoles, pickingHandler.Scan)
 
+		// Reservations
 		resR := protected.Group("/reservations", adminOperator)
 		resR.Get("/", reservationHandler.List)
 		resR.Post("/release", reservationHandler.Release)
 
-		stR := protected.Group("/stock", allRoles)
-		stR.Get("/", stockHandler.ListAll)
-		stR.Get("/product/:id", stockHandler.GetByProduct)
-		stR.Get("/location/:id", stockHandler.GetByLocation)
+		// Stock
+		stkR := protected.Group("/stock", allRoles)
+		stkR.Get("/", stockHandler.ListAll)
+		stkR.Get("/product/:id", stockHandler.GetByProduct)
+		stkR.Get("/location/:id", stockHandler.GetByLocation)
 
-		histR := protected.Group("/history", adminOperator)
-		histR.Get("/", historyHandler.List)
+		// History
+		hisR := protected.Group("/history", adminOperator)
+		hisR.Get("/", historyHandler.List)
 
-		auth.RegisterProtectedRoutes(protected, authHandler)
+		// Users
+		usrR := protected.Group("/users", adminOnly)
+		usrR.Get("/", authHandler.List)
+		usrR.Get("/:id", authHandler.GetByID)
+		usrR.Put("/:id", authHandler.Update)
+		usrR.Delete("/:id", authHandler.Delete)
+		usrR.Post("/:id/reset-token", authHandler.GenerateResetToken)
+		usrR.Post("/:id/revoke-sessions", authHandler.RevokeUserSessions)
 
-		usR := protected.Group("/users", adminOnly)
-		usR.Get("/", authHandler.List)
-		usR.Get("/:id", authHandler.GetByID)
-		usR.Put("/:id", authHandler.Update)
-		usR.Delete("/:id", authHandler.Delete)
-		usR.Post("/:id/reset-token", authHandler.GenerateResetToken)
-		usR.Post("/:id/revoke-sessions", authHandler.RevokeUserSessions)
+		// Dashboard
+		dshR := protected.Group("/dashboard", adminOperator)
+		dshR.Get("/summary", dashboardHandler.Summary)
 
-		dashR := protected.Group("/dashboard", adminOperator)
-		dashR.Get("/summary", dashboardHandler.Summary)
-
+		// Reports
 		repR := protected.Group("/reports", adminOnly)
 		repR.Get("/movements", reportsHandler.Movements)
 		repR.Get("/stock", reportsHandler.StockReport)
@@ -305,19 +330,21 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		repR.Get("/returns", reportsHandler.ReturnsReport)
 		repR.Get("/expiry", reportsHandler.ExpiryReport)
 
+		// Import/Export
 		impR := protected.Group("/import", adminOnly)
 		impR.Post("/products", csvioHandler.ImportProducts)
 		impR.Post("/locations", csvioHandler.ImportLocations)
-
 		expR := protected.Group("/export", adminOnly)
 		expR.Get("/products", csvioHandler.ExportProducts)
 		expR.Get("/locations", csvioHandler.ExportLocations)
 
+		// Settings
 		setR := protected.Group("/settings", adminOnly)
 		setR.Get("/notifications", notifyHandler.Get)
 		setR.Put("/notifications", notifyHandler.Update)
 		setR.Post("/notifications/test", notifyHandler.Test)
 
+		// Returns
 		retR := protected.Group("/returns")
 		retR.Get("/", allRoles, returnsHandler.List)
 		retR.Get("/:id", allRoles, returnsHandler.GetByID)
@@ -326,15 +353,21 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		retR.Post("/:id/cancel", adminOperator, returnsHandler.Cancel)
 		retR.Get("/:id/note.pdf", allRoles, returndocHandler.NotePDF)
 
+		// Lots
 		lotR := protected.Group("/lots")
 		lotR.Get("/", allRoles, lotHandler.List)
 		lotR.Get("/:id", allRoles, lotHandler.GetByID)
 		lotR.Post("/", adminOperator, lotHandler.Create)
 
+		// Protected Auth
+		auth.RegisterProtectedRoutes(protected, authHandler)
+
+		// Health Check
 		api.Get("/health", func(c *fiber.Ctx) error {
 			return c.JSON(fiber.Map{"status": "ok", "vercel": true, "time": time.Now().Format(time.RFC3339)})
 		})
 	})
 
+	// Final bridge
 	adaptor.FiberApp(app)(w, r)
 }
