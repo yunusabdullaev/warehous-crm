@@ -12,7 +12,7 @@
     ],
     "functions": {
         "api/*.go": {
-            "runtime": "@vercel/go@3.0.4"
+            "runtime": "@vercel/go@3.2.4"
         }
     }
 }
