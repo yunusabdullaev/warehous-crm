@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -244,8 +245,12 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		ctxStartup, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancelStartup()
 		_, _ = tenantSvc.EnsureDefault(ctxStartup)
-		_, _ = warehouseSvc.EnsureDefault(ctxStartup)
-		_ = authSvc.EnsureSuperAdmin(ctxStartup, "superadmin", "superadmin123")
+		wh, _ := warehouseSvc.EnsureDefault(ctxStartup)
+		var whID primitive.ObjectID
+		if wh != nil {
+			whID = wh.ID
+		}
+		_ = authSvc.EnsureSuperAdmin(ctxStartup, "superadmin", "superadmin123", whID)
 
 		// Public
 		auth.RegisterPublicRoutes(api, authHandler)

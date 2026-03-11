@@ -34,10 +34,14 @@ func NewService(repo Repository, sessionSvc *session.Service, tenantCol *mongo.C
 	}
 }
 
-// EnsureSuperAdmin creates the root account if missing.
-func (s *Service) EnsureSuperAdmin(ctx context.Context, username, password string) error {
+// EnsureSuperAdmin creates the root account if missing and asssigns default warehouse if provided.
+func (s *Service) EnsureSuperAdmin(ctx context.Context, username, password string, defaultWH primitive.ObjectID) error {
 	existing, _ := s.repo.FindByUsername(ctx, username)
 	if existing != nil {
+		// If user exists but lacks default warehouse, update it
+		if !defaultWH.IsZero() && existing.DefaultWarehouseID.IsZero() {
+			return s.repo.Update(ctx, existing.ID, bson.M{"default_warehouse_id": defaultWH})
+		}
 		return nil
 	}
 
@@ -47,9 +51,10 @@ func (s *Service) EnsureSuperAdmin(ctx context.Context, username, password strin
 	}
 
 	user := &User{
-		Username: username,
-		Password: string(hashed),
-		Role:     RoleSuperAdmin,
+		Username:           username,
+		Password:           string(hashed),
+		Role:               RoleSuperAdmin,
+		DefaultWarehouseID: defaultWH,
 	}
 
 	return s.repo.Create(ctx, user)
