@@ -245,6 +245,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		defer cancelStartup()
 		_, _ = tenantSvc.EnsureDefault(ctxStartup)
 		_, _ = warehouseSvc.EnsureDefault(ctxStartup)
+		_ = authSvc.EnsureSuperAdmin(ctxStartup, "superadmin", "superadmin123")
 
 		// Public
 		auth.RegisterPublicRoutes(api, authHandler)

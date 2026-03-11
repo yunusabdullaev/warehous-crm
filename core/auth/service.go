@@ -34,6 +34,27 @@ func NewService(repo Repository, sessionSvc *session.Service, tenantCol *mongo.C
 	}
 }
 
+// EnsureSuperAdmin creates the root account if missing.
+func (s *Service) EnsureSuperAdmin(ctx context.Context, username, password string) error {
+	existing, _ := s.repo.FindByUsername(ctx, username)
+	if existing != nil {
+		return nil
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user := &User{
+		Username: username,
+		Password: string(hashed),
+		Role:     RoleSuperAdmin,
+	}
+
+	return s.repo.Create(ctx, user)
+}
+
 // ── Authentication ──
 
 func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
