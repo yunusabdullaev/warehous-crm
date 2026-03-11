@@ -235,10 +235,11 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		app.Use(cors.New(cors.Config{
 			AllowOrigins:     corsOrigins,
 			AllowHeaders:     "Origin,Content-Type,Authorization,X-Warehouse-Id",
+			AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
 			AllowCredentials: true,
 		}))
 
-		slog.Info("cors middleware initialized - multi-origin mode", "origins", corsOrigins)
+		slog.Info("cors middleware initialized", "origins", corsOrigins)
 
 		api := app.Group("/api/v1")
 

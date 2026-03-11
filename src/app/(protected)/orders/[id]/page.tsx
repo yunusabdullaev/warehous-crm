@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getToken, can } from "@/lib/auth";
-import type { Order, Reservation, Product } from "@/lib/types";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api/v1";
+import api from "@/lib/api";
+import { can } from "@/lib/auth";
+import type { Order, Reservation, Product, PaginatedResponse } from "@/lib/types";
 
 const STATUS_COLORS: Record<string, string> = {
     DRAFT: "bg-gray-100 text-gray-700",
@@ -25,36 +24,37 @@ export default function OrderDetailPage() {
     const [actionError, setActionError] = useState("");
     const [acting, setActing] = useState("");
 
-    const headers = { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" };
 
     const fetchOrder = useCallback(async () => {
-        const res = await fetch(`${API}/orders/${id}`, { headers });
-        if (res.ok) {
-            const o: Order = await res.json();
+        try {
+            const res = await api.get<Order>(`/orders/${id}`);
+            const o = res.data;
             setOrder(o);
             // Fetch product names for items
             const productIds = [...new Set(o.items.map((it) => it.product_id))];
             const prodMap: Record<string, Product> = {};
             await Promise.all(
                 productIds.map(async (pid) => {
-                    const pr = await fetch(`${API}/products/${pid}`, { headers });
-                    if (pr.ok) {
-                        const p: Product = await pr.json();
-                        prodMap[pid] = p;
-                    }
+                    try {
+                        const pr = await api.get<Product>(`/products/${pid}`);
+                        prodMap[pid] = pr.data;
+                    } catch { }
                 })
             );
             setProducts(prodMap);
+        } catch (err) {
+            console.error("fetchOrder failed", err);
         }
         setLoading(false);
     }, [id]);
 
     const fetchReservations = useCallback(async () => {
-        const res = await fetch(`${API}/reservations?orderId=${id}&limit=100`, { headers });
-        if (res.ok) {
-            const json = await res.json();
-            setReservations(json.data || []);
-        }
+        try {
+            const res = await api.get<PaginatedResponse<Reservation>>("/reservations", {
+                params: { orderId: id, limit: 100 }
+            });
+            setReservations(res.data.data || []);
+        } catch { }
     }, [id]);
 
     useEffect(() => {
@@ -65,18 +65,18 @@ export default function OrderDetailPage() {
     const doAction = async (action: string, label: string) => {
         setActing(action);
         setActionError("");
-        const res = await fetch(`${API}/orders/${id}/${action}`, { method: "POST", headers });
-        if (res.ok) {
+        try {
+            await api.post(`/orders/${id}/${action}`);
             fetchOrder();
             fetchReservations();
-        } else {
-            const json = await res.json();
-            if (res.status === 409) {
-                setActionError(`${label} conflict: ${json.error}`);
-            } else if (res.status === 400) {
-                setActionError(json.error || "Bad request");
+        } catch (err: any) {
+            const res = err.response;
+            if (res?.status === 409) {
+                setActionError(`${label} conflict: ${res.data?.error}`);
+            } else if (res?.status === 400) {
+                setActionError(res.data?.error || "Bad request");
             } else {
-                setActionError(json.error || "Action failed");
+                setActionError(res.data?.error || "Action failed");
             }
         }
         setActing("");

@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import api from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { PickTask, Product, Location } from "@/lib/types";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api/v1";
+import type { PickTask, Product, Location, PaginatedResponse } from "@/lib/types";
 
 type Step = "location" | "task" | "qty" | "done";
 
@@ -27,20 +26,14 @@ export default function PickScanPage() {
     const [locations, setLocations] = useState<Record<string, Location>>({});
     const qtyRef = useRef<HTMLInputElement>(null);
 
-    const headers = useCallback(() => {
-        const t = getToken();
-        return { Authorization: `Bearer ${t}`, "Content-Type": "application/json" };
-    }, []);
 
     // Load tasks for order
     const loadTasks = useCallback(async () => {
         if (!orderId) return;
         setLoading(true);
         try {
-            const res = await fetch(`${API}/orders/${orderId}/pick-tasks`, { headers: headers() });
-            if (!res.ok) throw new Error("Failed to load tasks");
-            const data = await res.json();
-            const taskList: PickTask[] = (data.data || []).filter(
+            const res = await api.get<PaginatedResponse<PickTask>>(`/orders/${orderId}/pick-tasks`);
+            const taskList: PickTask[] = (res.data.data || []).filter(
                 (t: PickTask) => t.status === "OPEN" || t.status === "IN_PROGRESS"
             );
             setTasks(taskList);
@@ -53,25 +46,25 @@ export default function PickScanPage() {
             await Promise.all([
                 ...prodIds.map(async (pid) => {
                     try {
-                        const r = await fetch(`${API}/products/${pid}`, { headers: headers() });
-                        if (r.ok) pm[pid] = await r.json();
+                        const r = await api.get<Product>(`/products/${pid}`);
+                        pm[pid] = r.data;
                     } catch { }
                 }),
                 ...locIds.map(async (lid) => {
                     try {
-                        const r = await fetch(`${API}/locations/${lid}`, { headers: headers() });
-                        if (r.ok) lm[lid] = await r.json();
+                        const r = await api.get<Location>(`/locations/${lid}`);
+                        lm[lid] = r.data;
                     } catch { }
                 }),
             ]);
             setProducts(pm);
             setLocations(lm);
-        } catch (e: unknown) {
-            setMessage({ type: "error", text: e instanceof Error ? e.message : "Error" });
+        } catch (e: any) {
+            setMessage({ type: "error", text: e.response?.data?.error || e.message || "Error" });
         } finally {
             setLoading(false);
         }
-    }, [orderId, headers]);
+    }, [orderId]);
 
     useEffect(() => { loadTasks(); }, [loadTasks]);
 
@@ -142,26 +135,16 @@ export default function PickScanPage() {
 
         setLoading(true);
         try {
-            const res = await fetch(`${API}/pick-tasks/${selectedTask.id}/scan`, {
-                method: "POST",
-                headers: headers(),
-                body: JSON.stringify({
-                    location_id: scannedLocationId,
-                    product_id: selectedTask.product_id,
-                    lot_id: selectedTask.lot_id,
-                    qty: qNum,
-                    scanner: "camera",
-                    client: "web",
-                }),
+            const res = await api.post<PickTask>(`/pick-tasks/${selectedTask.id}/scan`, {
+                location_id: scannedLocationId,
+                product_id: selectedTask.product_id,
+                lot_id: selectedTask.lot_id,
+                qty: qNum,
+                scanner: "camera",
+                client: "web",
             });
 
-            if (!res.ok) {
-                const d = await res.json();
-                setMessage({ type: "error", text: `❌ ${d.error}` });
-                return;
-            }
-
-            const updated: PickTask = await res.json();
+            const updated = res.data;
             setMessage({
                 type: "success",
                 text: `✅ Picked ${qNum} — now ${updated.picked_qty}/${updated.planned_qty}${updated.status === "DONE" ? " ✓ DONE!" : ""}`,

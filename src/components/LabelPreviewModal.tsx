@@ -14,7 +14,6 @@ export default function LabelPreviewModal({ open, onClose, location }: Props) {
 
     if (!open) return null;
 
-    const qrUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api/v1"}/locations/${location.id}/qr`;
 
     const downloadPdf = async () => {
         setLoading(true);

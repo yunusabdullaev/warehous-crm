@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import api from "@/lib/api";
 import { getToken, can, getUser } from "@/lib/auth";
 import type { Order, Product, PaginatedResponse } from "@/lib/types";
 import { useRouter } from "next/navigation";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api/v1";
 
 const STATUS_COLORS: Record<string, string> = {
     DRAFT: "bg-gray-100 text-gray-700",
@@ -39,17 +38,16 @@ export default function OrdersPage() {
 
     const fetchOrders = useCallback(async () => {
         setLoading(true);
-        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-        if (statusFilter) params.set("status", statusFilter);
-        if (clientFilter) params.set("client", clientFilter);
+        try {
+            const params: Record<string, string> = { page: String(page), limit: String(limit) };
+            if (statusFilter) params.status = statusFilter;
+            if (clientFilter) params.client = clientFilter;
 
-        const res = await fetch(`${API}/orders?${params}`, {
-            headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (res.ok) {
-            const json: PaginatedResponse<Order> = await res.json();
-            setOrders(json.data || []);
-            setTotal(json.total);
+            const res = await api.get<PaginatedResponse<Order>>("/orders", { params });
+            setOrders(res.data.data || []);
+            setTotal(res.data.total);
+        } catch (err) {
+            console.error("fetchOrders failed", err);
         }
         setLoading(false);
     }, [page, statusFilter, clientFilter]);
@@ -58,30 +56,22 @@ export default function OrdersPage() {
 
     useEffect(() => {
         // Fetch products for create modal
-        fetch(`${API}/products?limit=200`, {
-            headers: { Authorization: `Bearer ${getToken()}` },
-        })
-            .then((r) => r.json())
-            .then((json) => setProducts(json.data || []));
+        api.get<PaginatedResponse<Product>>("/products", { params: { limit: 200 } })
+            .then((res) => setProducts(res.data.data || []));
     }, []);
 
     const handleCreate = async () => {
         setCreating(true);
         setError("");
-        const res = await fetch(`${API}/orders`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ client_name: clientName, notes, items }),
-        });
-        if (res.ok) {
+        try {
+            const res = await api.post("/orders", { client_name: clientName, notes, items });
             setShowCreate(false);
             setClientName("");
             setNotes("");
             setItems([{ product_id: "", requested_qty: 1 }]);
             fetchOrders();
-        } else {
-            const json = await res.json();
-            setError(json.error || "Failed to create order");
+        } catch (err: any) {
+            setError(err.response?.data?.error || "Failed to create order");
         }
         setCreating(false);
     };

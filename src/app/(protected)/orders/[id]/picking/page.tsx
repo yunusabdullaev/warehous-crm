@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getToken, can } from "@/lib/auth";
-import type { PickTask, Order, Product, Location } from "@/lib/types";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api/v1";
+import api from "@/lib/api";
+import { can } from "@/lib/auth";
+import type { PickTask, Order, Product, Location, PaginatedResponse } from "@/lib/types";
 
 const STATUS_COLORS: Record<string, string> = {
     OPEN: "#3b82f6",
@@ -27,23 +26,16 @@ export default function PickingPage() {
     const [assigningId, setAssigningId] = useState<string | null>(null);
     const [actionMsg, setActionMsg] = useState("");
 
-    const headers = useCallback(() => {
-        const t = getToken();
-        return { Authorization: `Bearer ${t}`, "Content-Type": "application/json" };
-    }, []);
 
     const loadData = useCallback(async () => {
         try {
             const [orderRes, tasksRes] = await Promise.all([
-                fetch(`${API}/orders/${id}`, { headers: headers() }),
-                fetch(`${API}/orders/${id}/pick-tasks`, { headers: headers() }),
+                api.get<Order>(`/orders/${id}`),
+                api.get<PaginatedResponse<PickTask>>(`/orders/${id}/pick-tasks`),
             ]);
-            if (!orderRes.ok) throw new Error("Order not found");
-            const orderData = await orderRes.json();
-            setOrder(orderData);
+            setOrder(orderRes.data);
 
-            const tasksData = await tasksRes.json();
-            const taskList: PickTask[] = tasksData.data || [];
+            const taskList: PickTask[] = tasksRes.data.data || [];
             setTasks(taskList);
 
             // Load product & location names
@@ -56,46 +48,39 @@ export default function PickingPage() {
             await Promise.all([
                 ...prodIds.map(async (pid) => {
                     try {
-                        const r = await fetch(`${API}/products/${pid}`, { headers: headers() });
-                        if (r.ok) pm[pid] = await r.json();
+                        const r = await api.get<Product>(`/products/${pid}`);
+                        pm[pid] = r.data;
                     } catch { }
                 }),
                 ...locIds.map(async (lid) => {
                     try {
-                        const r = await fetch(`${API}/locations/${lid}`, { headers: headers() });
-                        if (r.ok) lm[lid] = await r.json();
+                        const r = await api.get<Location>(`/locations/${lid}`);
+                        lm[lid] = r.data;
                     } catch { }
                 }),
             ]);
             setProducts(pm);
             setLocations(lm);
-        } catch (e: unknown) {
-            setError(e instanceof Error ? e.message : "Failed to load");
+        } catch (e: any) {
+            setError(e.response?.data?.error || e.message || "Failed to load");
         } finally {
             setLoading(false);
         }
-    }, [id, headers]);
+    }, [id]);
 
     useEffect(() => { loadData(); }, [loadData]);
 
     const handleAssign = async (taskId: string) => {
         if (!assignUser.trim()) return;
         try {
-            const res = await fetch(`${API}/pick-tasks/${taskId}/assign`, {
-                method: "POST",
-                headers: headers(),
-                body: JSON.stringify({ assign_to: assignUser.trim() }),
-            });
-            if (!res.ok) {
-                const d = await res.json();
-                setActionMsg(`❌ ${d.error}`);
-                return;
-            }
+            await api.post(`/pick-tasks/${taskId}/assign`, { assign_to: assignUser.trim() });
             setActionMsg("✅ Task assigned");
             setAssigningId(null);
             setAssignUser("");
             loadData();
-        } catch { setActionMsg("❌ Network error"); }
+        } catch (e: any) {
+            setActionMsg(`❌ ${e.response?.data?.error || "Network error"}`);
+        }
     };
 
     // Group tasks by location
