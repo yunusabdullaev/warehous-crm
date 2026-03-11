@@ -14,7 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 
-	"github.com/gofiber/adaptor/v2"
+	fiberAdaptor "github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	fiberRecover "github.com/gofiber/fiber/v2/middleware/recover"
@@ -226,14 +226,21 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		app.Use(fiberRecover.New())
 
 		corsOrigins := os.Getenv("CORS_ORIGINS")
-		if corsOrigins == "" {
-			corsOrigins = "*"
-		}
-		app.Use(cors.New(cors.Config{
-			AllowOrigins:     corsOrigins,
+		corsConfig := cors.Config{
 			AllowHeaders:     "Origin,Content-Type,Authorization,X-Warehouse-Id",
 			AllowCredentials: true,
-		}))
+		}
+
+		if corsOrigins == "" || corsOrigins == "*" {
+			// Fiber doesn't allow "*" with AllowCredentials: true.
+			// Using AllowOriginsFunc to allow any origin dynamically.
+			corsConfig.AllowOriginsFunc = func(origin string) bool {
+				return true
+			}
+		} else {
+			corsConfig.AllowOrigins = corsOrigins
+		}
+		app.Use(cors.New(corsConfig))
 
 		api := app.Group("/api/v1")
 
@@ -433,5 +440,5 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	adaptor.FiberApp(app)(w, r)
+	fiberAdaptor.FiberApp(app)(w, r)
 }
