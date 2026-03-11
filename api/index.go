@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -49,47 +50,50 @@ var (
 
 func Handler(w http.ResponseWriter, r *http.Request) {
 	initOnce.Do(func() {
-		logger.Init()
 		cfg := configs.LoadConfig()
+		logger.Init()
 
-		mongoClient, err := database.Connect(cfg.MongoURI)
+		slog.Info("initializing vercel function")
+
+		client, err := database.Connect(cfg.MongoURI)
 		if err != nil {
-			panic(err)
+			slog.Error("failed to connect to mongo", "error", err)
+			return
 		}
 
-		db := mongoClient.Database(cfg.DBName)
+		db := client.Database(cfg.DBName)
 		database.EnsureIndexes(db)
 
-		authRepo := auth.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "users"))
-		productRepo := product.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "products"))
-		locationRepo := location.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "locations"))
-		stockRepo := stock.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "stocks"))
-		historyRepo := history.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "history"))
-		inboundRepo := inbound.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "inbounds"))
-		outboundRepo := outbound.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "outbounds"))
-		adjustmentRepo := adjustment.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "adjustments"))
+		authRepo := auth.NewRepository(database.GetCollection(client, cfg.DBName, "users"))
+		productRepo := product.NewRepository(database.GetCollection(client, cfg.DBName, "products"))
+		locationRepo := location.NewRepository(database.GetCollection(client, cfg.DBName, "locations"))
+		stockRepo := stock.NewRepository(database.GetCollection(client, cfg.DBName, "stocks"))
+		historyRepo := history.NewRepository(database.GetCollection(client, cfg.DBName, "history"))
+		inboundRepo := inbound.NewRepository(database.GetCollection(client, cfg.DBName, "inbounds"))
+		outboundRepo := outbound.NewRepository(database.GetCollection(client, cfg.DBName, "outbounds"))
+		adjustmentRepo := adjustment.NewRepository(database.GetCollection(client, cfg.DBName, "adjustments"))
 		orderRepo := order.NewRepository(
-			database.GetCollection(mongoClient, cfg.DBName, "orders"),
-			database.GetCollection(mongoClient, cfg.DBName, "counters"),
+			database.GetCollection(client, cfg.DBName, "orders"),
+			database.GetCollection(client, cfg.DBName, "counters"),
 		)
-		reservationRepo := reservation.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "reservations"))
+		reservationRepo := reservation.NewRepository(database.GetCollection(client, cfg.DBName, "reservations"))
 		pickingRepo := picking.NewRepository(
-			database.GetCollection(mongoClient, cfg.DBName, "pick_tasks"),
-			database.GetCollection(mongoClient, cfg.DBName, "pick_events"),
+			database.GetCollection(client, cfg.DBName, "pick_tasks"),
+			database.GetCollection(client, cfg.DBName, "pick_events"),
 		)
-		lotRepo := lot.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "lots"))
-		warehouseRepo := warehouse.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "warehouses"))
-		tenantRepo := tenant.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "tenants"))
+		lotRepo := lot.NewRepository(database.GetCollection(client, cfg.DBName, "lots"))
+		warehouseRepo := warehouse.NewRepository(database.GetCollection(client, cfg.DBName, "warehouses"))
+		tenantRepo := tenant.NewRepository(database.GetCollection(client, cfg.DBName, "tenants"))
 
 		sessionRepo := session.NewRepository(
-			database.GetCollection(mongoClient, cfg.DBName, "sessions"),
-			database.GetCollection(mongoClient, cfg.DBName, "login_attempts"),
-			database.GetCollection(mongoClient, cfg.DBName, "reset_tokens"),
+			database.GetCollection(client, cfg.DBName, "sessions"),
+			database.GetCollection(client, cfg.DBName, "login_attempts"),
+			database.GetCollection(client, cfg.DBName, "reset_tokens"),
 		)
 		sessionSvc := session.NewService(sessionRepo, cfg.JWTSecret, cfg.AccessTokenTTLMin, cfg.RefreshTokenTTLDays)
 
 		authSvc := auth.NewService(authRepo, sessionSvc,
-			database.GetCollection(mongoClient, cfg.DBName, "tenants"),
+			database.GetCollection(client, cfg.DBName, "tenants"),
 			cfg.JWTSecret, cfg.JWTExpiryHrs, cfg.AccessTokenTTLMin)
 
 		productSvc := product.NewService(productRepo)
@@ -107,8 +111,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		pickingSvc := picking.NewService(pickingRepo, stockSvc, historySvc, lotSvc)
 
 		notifyRepo := notify.NewRepository(
-			database.GetCollection(mongoClient, cfg.DBName, "settings"),
-			database.GetCollection(mongoClient, cfg.DBName, "alerts"),
+			database.GetCollection(client, cfg.DBName, "settings"),
+			database.GetCollection(client, cfg.DBName, "alerts"),
 		)
 		telegramBot := notify.NewTelegramBot()
 		notifySvc := notify.NewService(notifyRepo, telegramBot, productSvc, stockSvc, lotSvc)
@@ -119,14 +123,14 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		reportsSvc := reports.NewService(db)
 
 		returnsRepo := returns.NewRepository(
-			database.GetCollection(mongoClient, cfg.DBName, "returns"),
-			database.GetCollection(mongoClient, cfg.DBName, "return_items"),
-			database.GetCollection(mongoClient, cfg.DBName, "qc_holds"),
-			database.GetCollection(mongoClient, cfg.DBName, "counters"),
+			database.GetCollection(client, cfg.DBName, "returns"),
+			database.GetCollection(client, cfg.DBName, "return_items"),
+			database.GetCollection(client, cfg.DBName, "qc_holds"),
+			database.GetCollection(client, cfg.DBName, "counters"),
 		)
 		returnsSvc := returns.NewService(returnsRepo, orderSvc, stockSvc, historySvc, notifySvc, lotSvc)
 
-		authHandler := auth.NewHandler(authSvc, sessionSvc, cfg, database.GetCollection(mongoClient, cfg.DBName, "tenants"))
+		authHandler := auth.NewHandler(authSvc, sessionSvc, cfg, database.GetCollection(client, cfg.DBName, "tenants"))
 		productHandler := product.NewHandler(productSvc)
 		locationHandler := location.NewHandler(locationSvc)
 		stockHandler := stock.NewHandler(stockSvc, reservationSvc)
@@ -141,8 +145,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		reportsHandler := reports.NewHandler(reportsSvc)
 		lotHandler := lot.NewHandler(lotSvc)
 		csvioSvc := csvio.NewService(
-			database.GetCollection(mongoClient, cfg.DBName, "products"),
-			database.GetCollection(mongoClient, cfg.DBName, "locations"),
+			database.GetCollection(client, cfg.DBName, "products"),
+			database.GetCollection(client, cfg.DBName, "locations"),
 		)
 		csvioHandler := csvio.NewHandler(csvioSvc)
 		qrlabelHandler := qrlabel.NewHandler(locationSvc)
@@ -153,9 +157,9 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		warehouseHandler := warehouse.NewHandler(warehouseSvc)
 		tenantHandler := tenant.NewHandler(tenantSvc)
 
-		billingRepo := billing.NewRepository(database.GetCollection(mongoClient, cfg.DBName, "billing_events"))
+		billingRepo := billing.NewRepository(database.GetCollection(client, cfg.DBName, "billing_events"))
 		billingSvc := billing.NewService(billingRepo,
-			database.GetCollection(mongoClient, cfg.DBName, "tenants"),
+			database.GetCollection(client, cfg.DBName, "tenants"),
 			tenantSvc,
 			billing.StripeConfig{
 				SecretKey:       cfg.StripeSecretKey,
@@ -195,12 +199,12 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		auth.RegisterPublicRoutes(api, authHandler)
 		api.Post("/webhooks/stripe", billingHandler.Webhook)
 
-		tenantCol := database.GetCollection(mongoClient, cfg.DBName, "tenants")
+		tenantCol := database.GetCollection(client, cfg.DBName, "tenants")
 		protected := api.Group("", middleware.AuthMiddleware(cfg.JWTSecret),
 			middleware.RequireTenantActive(tenantCol),
 			middleware.WarehouseContext(
-				database.GetCollection(mongoClient, cfg.DBName, "users"),
-				database.GetCollection(mongoClient, cfg.DBName, "warehouses"),
+				database.GetCollection(client, cfg.DBName, "users"),
+				database.GetCollection(client, cfg.DBName, "warehouses"),
 			))
 
 		allRoles := middleware.RequireRoles("admin", "operator", "loader")
@@ -369,5 +373,13 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Final bridge
+	if app == nil {
+		slog.Error("app initialization failed - check MONGO_URI and connection")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"Internal Server Error","message":"Service Initialization Failed. Check environment variables (MONGO_URI) and database connectivity."}`))
+		return
+	}
+
 	adaptor.FiberApp(app)(w, r)
 }
