@@ -5,13 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	fiberRecover "github.com/gofiber/fiber/v2/middleware/recover"
 
 	"warehouse-crm/configs"
 	"warehouse-crm/core/adjustment"
@@ -56,6 +57,19 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 		slog.Info("initializing vercel function")
 
+		// Mask MONGO_URI for logging
+		maskedURI := cfg.MongoURI
+		if strings.Contains(maskedURI, "@") && strings.Contains(maskedURI, "://") {
+			parts := strings.Split(maskedURI, "@")
+			prefix := strings.Split(parts[0], "://")
+			maskedURI = prefix[0] + "://***:***@" + parts[1]
+		}
+		slog.Info("database config", "uri", maskedURI, "db", cfg.DBName)
+
+		if strings.Contains(cfg.MongoURI, "localhost") {
+			slog.Warn("MONGO_URI is set to localhost - this will fail on Vercel unless configured")
+		}
+
 		client, err := database.Connect(cfg.MongoURI)
 		if err != nil {
 			slog.Error("failed to connect to mongo", "error", err)
@@ -64,7 +78,18 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		db := client.Database(cfg.DBName)
-		database.EnsureIndexes(db)
+
+		// Run indexes in background to avoid blocking Vercel cold start response
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("panic in background index creation", "error", r)
+				}
+			}()
+			slog.Info("starting async index creation")
+			database.EnsureIndexes(db)
+			slog.Info("async index creation completed")
+		}()
 
 		authRepo := auth.NewRepository(database.GetCollection(client, cfg.DBName, "users"))
 		productRepo := product.NewRepository(database.GetCollection(client, cfg.DBName, "products"))
@@ -177,7 +202,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 		// Create Fiber app
 		app = fiber.New()
-		app.Use(recover.New())
+		app.Use(fiberRecover.New())
 
 		corsOrigins := os.Getenv("CORS_ORIGINS")
 		if corsOrigins == "" {
