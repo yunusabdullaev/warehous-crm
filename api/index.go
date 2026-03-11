@@ -2,12 +2,17 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 
 	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
@@ -70,10 +75,26 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("MONGO_URI is set to localhost - this will fail on Vercel unless configured")
 		}
 
-		client, err := database.Connect(cfg.MongoURI)
+		if cfg.MongoURI == "" || strings.Contains(cfg.MongoURI, "localhost") {
+			initErr = fmt.Errorf("MONGO_URI is missing or pointing to localhost. Please set MONGO_URI in Vercel Environment Variables")
+			slog.Error("critical config error", "error", initErr)
+			return
+		}
+
+		// Use a shorter timeout to fail faster before Vercel kills the process
+		ctxConn, cancelConn := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelConn()
+
+		client, err := mongo.Connect(ctxConn, options.Client().ApplyURI(cfg.MongoURI))
 		if err != nil {
+			initErr = fmt.Errorf("mongo connect failed: %w", err)
 			slog.Error("failed to connect to mongo", "error", err)
-			initErr = err
+			return
+		}
+
+		if err := client.Ping(ctxConn, readpref.Primary()); err != nil {
+			initErr = fmt.Errorf("mongo ping failed: %w", err)
+			slog.Error("failed to ping mongo", "error", err)
 			return
 		}
 
