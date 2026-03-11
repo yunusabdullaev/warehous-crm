@@ -1,14 +1,22 @@
 {
     "version": 2,
+    "builds": [
+        {
+            "src": "api/**/*.go",
+            "use": "@vercel/go",
+            "config": {
+                "maxLambdaSize": "50mb"
+            }
+        },
+        {
+            "src": "package.json",
+            "use": "@vercel/next"
+        }
+    ],
     "rewrites": [
         {
             "source": "/api/(.*)",
             "destination": "/api/index.go"
         }
-    ],
-    "functions": {
-        "api/*.go": {
-            "runtime": "@vercel/go@3.2.4"
-        }
-    }
+    ]
 }
