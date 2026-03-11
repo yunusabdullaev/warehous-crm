@@ -3,7 +3,7 @@
     "builds": [
         {
             "src": "api/**/*.go",
-            "use": "@vercel/go",
+            "use": "@vercel/go@3.2.4",
             "config": {
                 "maxLambdaSize": "50mb"
             }
