@@ -63,8 +63,23 @@ func WarehouseContext(usersCol *mongo.Collection, warehousesCol *mongo.Collectio
 			}
 		}
 
-		// Superadmin without warehouse context → allow through for
-		// control-plane routes (tenant mgmt, billing, user admin, etc.)
+		// If no header and no user default, and user is superadmin,
+		// auto-fallback to the first available warehouse in the system
+		if warehouseID.IsZero() && role == "superadmin" {
+			// Find first warehouse
+			cursor, err := warehousesCol.Find(c.Context(), bson.M{}, nil)
+			if err == nil {
+				var first []struct {
+					ID primitive.ObjectID `bson:"_id"`
+				}
+				if err := cursor.All(c.Context(), &first); err == nil && len(first) > 0 {
+					warehouseID = first[0].ID
+					slog.Info("warehouse middleware: superadmin auto-selected first warehouse", "id", warehouseID.Hex())
+				}
+			}
+		}
+
+		// Still empty → check if we can continue (for control-plane routes)
 		if warehouseID.IsZero() && role == "superadmin" {
 			return c.Next()
 		}
