@@ -60,7 +60,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		cfg := configs.LoadConfig()
 		logger.Init()
 
-		slog.Info("initializing vercel function")
+		slog.Info("initializing vercel function - HEARTBEAT MAR 11 12:05")
 
 		// Mask MONGO_URI for logging
 		maskedURI := cfg.MongoURI
@@ -226,24 +226,17 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		app.Use(fiberRecover.New())
 
 		corsOrigins := os.Getenv("CORS_ORIGINS")
-		corsConfig := cors.Config{
+		if corsOrigins == "" || corsOrigins == "*" {
+			corsOrigins = "https://warehous-crm-6ikv.vercel.app" // Fallback to prodtuction URL
+		}
+
+		app.Use(cors.New(cors.Config{
+			AllowOrigins:     corsOrigins,
 			AllowHeaders:     "Origin,Content-Type,Authorization,X-Warehouse-Id",
 			AllowCredentials: true,
-		}
+		}))
 
-		if corsOrigins == "" || corsOrigins == "*" {
-			// Fiber panics if AllowOrigins is "" or "*" when AllowCredentials is true.
-			// Setting to a temporary string to bypass panic; AllowOriginsFunc will handle the real logic.
-			corsConfig.AllowOrigins = "https://placeholder.vercel.app"
-			corsConfig.AllowOriginsFunc = func(origin string) bool {
-				return true
-			}
-		} else {
-			corsConfig.AllowOrigins = corsOrigins
-		}
-		app.Use(cors.New(corsConfig))
-
-		slog.Info("cors middleware initialized", "origins", corsOrigins)
+		slog.Info("cors middleware initialized - safe mode", "origins", corsOrigins)
 
 		api := app.Group("/api/v1")
 
