@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import api from "@/lib/api";
 import { can, getUser } from "@/lib/auth";
 import { toast } from "@/components/Toast";
-import CsvImportModal from "@/components/CsvImportModal";
+import ExcelImportModal from "@/components/ExcelImportModal";
 import type { Product, PaginatedResponse } from "@/lib/types";
 
 const schema = z.object({
@@ -74,13 +74,13 @@ export default function ProductsPage() {
         }
     };
 
-    const exportCsv = async () => {
+    const exportExcel = async () => {
         try {
             const res = await api.get("/export/products", { responseType: "blob" });
             const url = URL.createObjectURL(new Blob([res.data]));
             const a = document.createElement("a");
             a.href = url;
-            a.download = `products_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.csv`;
+            a.download = `products_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.xlsx`;
             a.click();
             URL.revokeObjectURL(url);
             toast("success", "Products exported");
@@ -104,11 +104,11 @@ export default function ProductsPage() {
                         <>
                             <button onClick={() => setShowImport(true)}
                                 className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm hover:bg-amber-600 transition">
-                                📥 Import CSV
+                                📥 Import Excel
                             </button>
-                            <button onClick={exportCsv}
+                            <button onClick={exportExcel}
                                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition">
-                                📤 Export CSV
+                                📤 Export Excel
                             </button>
                         </>
                     )}
@@ -122,11 +122,11 @@ export default function ProductsPage() {
             </div>
 
             {/* Import Modal */}
-            <CsvImportModal
+            <ExcelImportModal
                 open={showImport}
                 onClose={() => setShowImport(false)}
                 endpoint="/import/products"
-                title="Import Products CSV"
+                title="Import Products Excel"
                 onDone={fetchProducts}
             />
 

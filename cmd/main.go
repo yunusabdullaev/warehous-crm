@@ -221,7 +221,7 @@ func main() {
 	// ──────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
 		AppName:   "Warehouse CRM v1.0",
-		BodyLimit: 10 * 1024 * 1024, // 10 MB for CSV uploads
+		BodyLimit: 50 * 1024 * 1024, // 50 MB for Excel uploads
 	})
 
 	// Global middleware
@@ -396,7 +396,7 @@ func main() {
 	reportsR.Get("/returns", reportsHandler.ReturnsReport)
 	reportsR.Get("/expiry", reportsHandler.ExpiryReport)
 
-	// ── CSV Import / Export (admin only, export feature-gated) ──
+	// ── Excel Import / Export (admin only, export feature-gated) ──
 	importR := protected.Group("/import", adminOnly)
 	importR.Post("/products", middleware.EnforceLimit(tenantCol, db, "maxProducts"), csvioHandler.ImportProducts)
 	importR.Post("/locations", csvioHandler.ImportLocations)

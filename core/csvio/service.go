@@ -3,69 +3,57 @@ package csvio
 import (
 	"bytes"
 	"context"
-	"encoding/csv"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/xuri/excelize/v2"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// Service handles CSV import/export for products and locations.
+// Service handles Excel import/export for products and locations.
 type Service struct {
 	products  *mongo.Collection
 	locations *mongo.Collection
 }
 
-// NewService creates a new csvio service.
+// NewService creates a new excelio service.
 func NewService(products, locations *mongo.Collection) *Service {
 	return &Service{products: products, locations: locations}
 }
 
-// ── helpers ─────────────────────────────────────────────────────
-
-// stripBOM removes a UTF-8 BOM from the first field if present.
-func stripBOM(s string) string {
-	return strings.TrimPrefix(s, "\xEF\xBB\xBF")
-}
-
-func trimAll(rec []string) {
-	for i := range rec {
-		rec[i] = strings.TrimSpace(rec[i])
-	}
-}
-
 // ── Products Import ─────────────────────────────────────────────
 
-// ImportProducts streams CSV from r, validates, and upserts products by SKU.
-// Expected CSV header: sku,name,unit,description
+// ImportProducts reads Excel from r, validates, and upserts products by SKU.
+// Expected Header: SKU, Name, Unit, Description
 func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportReport, error) {
-	reader := csv.NewReader(r)
-	reader.LazyQuotes = true
-	reader.TrimLeadingSpace = true
-	reader.ReuseRecord = true
-	reader.FieldsPerRecord = -1 // variable
+	f, err := excelize.OpenReader(r)
+	if err != nil {
+		return nil, fmt.Errorf("invalid excel file: %w", err)
+	}
+	defer f.Close()
+
+	sheet := f.GetSheetName(0)
+	rows, err := f.GetRows(sheet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sheet: %w", err)
+	}
+
+	if len(rows) < 1 {
+		return nil, fmt.Errorf("excel file is empty")
+	}
 
 	report := &ImportReport{Errors: []RowError{}}
-
-	// Read header
-	header, err := reader.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV header: %w", err)
-	}
-	if len(header) > 0 {
-		header[0] = stripBOM(header[0])
-	}
-	trimAll(header)
-
+	header := rows[0]
 	colIdx := map[string]int{}
 	for i, h := range header {
-		colIdx[strings.ToLower(h)] = i
+		colIdx[strings.ToLower(strings.TrimSpace(h))] = i
 	}
+
 	reqCols := []string{"sku", "name", "unit"}
 	for _, c := range reqCols {
 		if _, ok := colIdx[c]; !ok {
@@ -73,68 +61,14 @@ func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportRepor
 		}
 	}
 
-	type bulkItem struct {
-		sku  string
-		doc  bson.M
-		isUp bool // true = update existing
-	}
+	batch := make([]mongo.WriteModel, 0, 500)
+	seenSKUs := map[string]int{}
 
-	batch := make([]bulkItem, 0, 500)
-	seenSKUs := map[string]int{} // sku -> first row
-	rowNum := 1                  // header is row 1
-
-	flushBatch := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		models := make([]mongo.WriteModel, 0, len(batch))
-		for _, item := range batch {
-			filter := bson.M{"sku": item.sku}
-			if item.isUp {
-				models = append(models, mongo.NewUpdateOneModel().
-					SetFilter(filter).
-					SetUpdate(bson.M{"$set": item.doc}))
-			} else {
-				item.doc["_id"] = primitive.NewObjectID()
-				item.doc["created_at"] = time.Now().UTC()
-				item.doc["updated_at"] = time.Now().UTC()
-				models = append(models, mongo.NewUpdateOneModel().
-					SetFilter(filter).
-					SetUpdate(bson.M{"$setOnInsert": item.doc}).
-					SetUpsert(true))
-			}
-		}
-		opts := options.BulkWrite().SetOrdered(false)
-		result, err := s.products.BulkWrite(ctx, models, opts)
-		if err != nil {
-			return err
-		}
-		report.Inserted += int(result.UpsertedCount)
-		report.Updated += int(result.ModifiedCount)
-		batch = batch[:0]
-		return nil
-	}
-
-	for {
-		rec, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		rowNum++
-		if err != nil {
-			report.Failed++
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "", Message: fmt.Sprintf("parse error: %v", err)})
-			continue
-		}
-
-		// Make a copy since ReuseRecord is true
-		row := make([]string, len(rec))
-		copy(row, rec)
-		trimAll(row)
-
+	for rowNum := 2; rowNum <= len(rows); rowNum++ {
+		rowData := rows[rowNum-1]
 		getCol := func(name string) string {
-			if idx, ok := colIdx[name]; ok && idx < len(row) {
-				return row[idx]
+			if idx, ok := colIdx[name]; ok && idx < len(rowData) {
+				return strings.TrimSpace(rowData[idx])
 			}
 			return ""
 		}
@@ -144,15 +78,14 @@ func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportRepor
 		unit := strings.ToLower(getCol("unit"))
 		desc := getCol("description")
 
-		// Validate
+		if sku == "" && name == "" {
+			continue // Skip truly empty rows
+		}
+
 		valid := true
 		if sku == "" {
 			report.Failed++
 			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "sku", Message: "required"})
-			valid = false
-		} else if len(sku) > 64 {
-			report.Failed++
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "sku", Message: "must be <= 64 chars"})
 			valid = false
 		}
 		if name == "" {
@@ -162,29 +95,24 @@ func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportRepor
 			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "name", Message: "required"})
 			valid = false
 		}
-		if unit != "kg" && unit != "pcs" {
+		if unit != "kg" && unit != "pcs" && unit != "box" {
 			if valid {
 				report.Failed++
 			}
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "unit", Message: "must be kg or pcs"})
+			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "unit", Message: "must be kg, pcs, or box"})
 			valid = false
 		}
+
 		if !valid {
 			continue
 		}
 
-		// Duplicate SKU within the same file
 		if firstRow, exists := seenSKUs[sku]; exists {
 			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "sku", Message: fmt.Sprintf("duplicate in file (first at row %d)", firstRow)})
 			report.Skipped++
 			continue
 		}
 		seenSKUs[sku] = rowNum
-
-		// Check DB for existing
-		var existing bson.M
-		err = s.products.FindOne(ctx, bson.M{"sku": sku}).Decode(&existing)
-		isUpdate := err == nil
 
 		doc := bson.M{
 			"sku":         sku,
@@ -194,22 +122,38 @@ func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportRepor
 			"updated_at":  time.Now().UTC(),
 		}
 
-		if isUpdate {
-			batch = append(batch, bulkItem{sku: sku, doc: doc, isUp: true})
-		} else {
-			batch = append(batch, bulkItem{sku: sku, doc: doc, isUp: false})
-		}
+		filter := bson.M{"sku": sku}
+		// Try to see if it exists to count Inserted vs Updated manually or just let BulkWrite handle it
+		// For simplicity, we use ReplaceOne with upsert
+		batch = append(batch, mongo.NewUpdateOneModel().
+			SetFilter(filter).
+			SetUpdate(bson.M{
+				"$set": doc,
+				"$setOnInsert": bson.M{
+					"created_at": time.Now().UTC(),
+					"_id":        primitive.NewObjectID(),
+				},
+			}).
+			SetUpsert(true))
 
 		if len(batch) >= 500 {
-			if err := flushBatch(); err != nil {
-				return nil, fmt.Errorf("batch write error: %w", err)
+			res, err := s.products.BulkWrite(ctx, batch, options.BulkWrite().SetOrdered(false))
+			if err != nil {
+				return nil, err
 			}
+			report.Inserted += int(res.UpsertedCount)
+			report.Updated += int(res.ModifiedCount)
+			batch = batch[:0]
 		}
 	}
 
-	// Flush remaining
-	if err := flushBatch(); err != nil {
-		return nil, fmt.Errorf("batch write error: %w", err)
+	if len(batch) > 0 {
+		res, err := s.products.BulkWrite(ctx, batch, options.BulkWrite().SetOrdered(false))
+		if err != nil {
+			return nil, err
+		}
+		report.Inserted += int(res.UpsertedCount)
+		report.Updated += int(res.ModifiedCount)
 	}
 
 	return report, nil
@@ -217,64 +161,42 @@ func (s *Service) ImportProducts(ctx context.Context, r io.Reader) (*ImportRepor
 
 // ── Locations Import ─────────────────────────────────────────────
 
-// ImportLocations streams CSV from r, validates, and inserts locations.
-// Skips if (zone,rack,level) already exists.
-// Expected CSV header: zone,rack,level
 func (s *Service) ImportLocations(ctx context.Context, r io.Reader) (*ImportReport, error) {
-	reader := csv.NewReader(r)
-	reader.LazyQuotes = true
-	reader.TrimLeadingSpace = true
-	reader.ReuseRecord = true
-	reader.FieldsPerRecord = -1
+	f, err := excelize.OpenReader(r)
+	if err != nil {
+		return nil, fmt.Errorf("invalid excel file: %w", err)
+	}
+	defer f.Close()
+
+	rows, err := f.GetRows(f.GetSheetName(0))
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) < 1 {
+		return nil, fmt.Errorf("empty file")
+	}
 
 	report := &ImportReport{Errors: []RowError{}}
-
-	header, err := reader.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV header: %w", err)
-	}
-	if len(header) > 0 {
-		header[0] = stripBOM(header[0])
-	}
-	trimAll(header)
-
+	header := rows[0]
 	colIdx := map[string]int{}
 	for i, h := range header {
-		colIdx[strings.ToLower(h)] = i
+		colIdx[strings.ToLower(strings.TrimSpace(h))] = i
 	}
+
 	for _, c := range []string{"zone", "rack", "level"} {
 		if _, ok := colIdx[c]; !ok {
 			return nil, fmt.Errorf("missing required column: %s", c)
 		}
 	}
 
-	type locRow struct {
-		zone, rack, level string
-	}
-
 	seenKeys := map[string]int{}
 	var toInsert []interface{}
-	rowNum := 1
 
-	for {
-		rec, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		rowNum++
-		if err != nil {
-			report.Failed++
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "", Message: fmt.Sprintf("parse error: %v", err)})
-			continue
-		}
-
-		row := make([]string, len(rec))
-		copy(row, rec)
-		trimAll(row)
-
+	for rowNum := 2; rowNum <= len(rows); rowNum++ {
+		rowData := rows[rowNum-1]
 		getCol := func(name string) string {
-			if idx, ok := colIdx[name]; ok && idx < len(row) {
-				return row[idx]
+			if idx, ok := colIdx[name]; ok && idx < len(rowData) {
+				return strings.TrimSpace(rowData[idx])
 			}
 			return ""
 		}
@@ -283,24 +205,14 @@ func (s *Service) ImportLocations(ctx context.Context, r io.Reader) (*ImportRepo
 		rack := getCol("rack")
 		level := getCol("level")
 
+		if zone == "" && rack == "" && level == "" {
+			continue
+		}
+
 		valid := true
-		if zone == "" {
+		if zone == "" || rack == "" || level == "" {
 			report.Failed++
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "zone", Message: "required"})
-			valid = false
-		}
-		if rack == "" {
-			if valid {
-				report.Failed++
-			}
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "rack", Message: "required"})
-			valid = false
-		}
-		if level == "" {
-			if valid {
-				report.Failed++
-			}
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "level", Message: "required"})
+			report.Errors = append(report.Errors, RowError{Row: rowNum, Message: "zone, rack, level are all required"})
 			valid = false
 		}
 		if !valid {
@@ -308,8 +220,7 @@ func (s *Service) ImportLocations(ctx context.Context, r io.Reader) (*ImportRepo
 		}
 
 		key := fmt.Sprintf("%s|%s|%s", zone, rack, level)
-		if firstRow, exists := seenKeys[key]; exists {
-			report.Errors = append(report.Errors, RowError{Row: rowNum, Field: "zone+rack+level", Message: fmt.Sprintf("duplicate in file (first at row %d)", firstRow)})
+		if _, exists := seenKeys[key]; exists {
 			report.Skipped++
 			continue
 		}
@@ -322,138 +233,114 @@ func (s *Service) ImportLocations(ctx context.Context, r io.Reader) (*ImportRepo
 			continue
 		}
 
-		code := fmt.Sprintf("%s-%s-%s", zone, rack, level)
-		name := fmt.Sprintf("%s / Rack %s / Level %s", zone, rack, level)
 		now := time.Now().UTC()
-
 		toInsert = append(toInsert, bson.M{
 			"_id":        primitive.NewObjectID(),
-			"code":       code,
-			"name":       name,
+			"code":       fmt.Sprintf("%s-%s-%s", zone, rack, level),
+			"name":       fmt.Sprintf("%s / Rack %s / Level %s", zone, rack, level),
 			"zone":       zone,
-			"aisle":      "",
 			"rack":       rack,
 			"level":      level,
 			"created_at": now,
 			"updated_at": now,
 		})
 
-		// Batch insert every 500
 		if len(toInsert) >= 500 {
-			opts := options.InsertMany().SetOrdered(false)
-			_, err := s.locations.InsertMany(ctx, toInsert, opts)
+			res, err := s.locations.InsertMany(ctx, toInsert, options.InsertMany().SetOrdered(false))
 			if err != nil {
-				return nil, fmt.Errorf("batch insert error: %w", err)
+				return nil, err
 			}
-			report.Inserted += len(toInsert)
+			report.Inserted += len(res.InsertedIDs)
 			toInsert = toInsert[:0]
 		}
 	}
 
 	if len(toInsert) > 0 {
-		opts := options.InsertMany().SetOrdered(false)
-		_, err := s.locations.InsertMany(ctx, toInsert, opts)
+		res, err := s.locations.InsertMany(ctx, toInsert, options.InsertMany().SetOrdered(false))
 		if err != nil {
-			return nil, fmt.Errorf("batch insert error: %w", err)
+			return nil, err
 		}
-		report.Inserted += len(toInsert)
+		report.Inserted += len(res.InsertedIDs)
 	}
 
 	return report, nil
 }
 
-// ── Products Export ─────────────────────────────────────────────
+// ── Exports ──────────────────────────────────────────────────────
 
-// ExportProducts writes all products as CSV to w.
-func (s *Service) ExportProducts(ctx context.Context, w io.Writer) error {
+func (s *Service) ExportProductsToBytes(ctx context.Context) ([]byte, error) {
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheet := "Products"
+	f.SetSheetName("Sheet1", sheet)
+
+	f.SetCellValue(sheet, "A1", "SKU")
+	f.SetCellValue(sheet, "B1", "Name")
+	f.SetCellValue(sheet, "C1", "Unit")
+	f.SetCellValue(sheet, "D1", "Description")
+
 	cursor, err := s.products.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "sku", Value: 1}}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer cursor.Close(ctx)
 
-	writer := csv.NewWriter(w)
-	defer writer.Flush()
-
-	writer.Write([]string{"sku", "name", "unit", "description"})
-
+	row := 2
 	for cursor.Next(ctx) {
-		var doc bson.M
-		if err := cursor.Decode(&doc); err != nil {
+		var p struct {
+			SKU, Name, Unit, Description string
+		}
+		if err := cursor.Decode(&p); err != nil {
 			continue
 		}
-		writer.Write([]string{
-			fmt.Sprint(doc["sku"]),
-			fmt.Sprint(doc["name"]),
-			fmt.Sprint(doc["unit"]),
-			fmt.Sprint(doc["description"]),
-		})
+		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), p.SKU)
+		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), p.Name)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), p.Unit)
+		f.SetCellValue(sheet, fmt.Sprintf("D%d", row), p.Description)
+		row++
 	}
-	return cursor.Err()
-}
 
-// ExportLocations writes all locations as CSV to w.
-func (s *Service) ExportLocations(ctx context.Context, w io.Writer) error {
-	cursor, err := s.locations.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "zone", Value: 1}, {Key: "rack", Value: 1}, {Key: "level", Value: 1}}))
-	if err != nil {
-		return err
-	}
-	defer cursor.Close(ctx)
-
-	writer := csv.NewWriter(&bomWriter{w: w, first: true})
-	defer writer.Flush()
-
-	writer.Write([]string{"zone", "rack", "level"})
-
-	for cursor.Next(ctx) {
-		var doc bson.M
-		if err := cursor.Decode(&doc); err != nil {
-			continue
-		}
-		writer.Write([]string{
-			fmt.Sprint(doc["zone"]),
-			fmt.Sprint(doc["rack"]),
-			fmt.Sprint(doc["level"]),
-		})
-	}
-	return cursor.Err()
-}
-
-// bomWriter writes a UTF-8 BOM before the first write for Excel compatibility.
-type bomWriter struct {
-	w     io.Writer
-	first bool
-}
-
-func (bw *bomWriter) Write(p []byte) (int, error) {
-	if bw.first {
-		bw.first = false
-		bom := []byte{0xEF, 0xBB, 0xBF}
-		combined := make([]byte, 0, len(bom)+len(p))
-		combined = append(combined, bom...)
-		combined = append(combined, p...)
-		n, err := bw.w.Write(combined)
-		if n >= len(bom) {
-			return n - len(bom), err
-		}
-		return 0, err
-	}
-	return bw.w.Write(p)
-}
-
-// ExportProductsToBytes is a convenience wrapper.
-func (s *Service) ExportProductsToBytes(ctx context.Context) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := s.ExportProducts(ctx, &buf); err != nil {
+	if err := f.Write(&buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// ExportLocationsToBytes is a convenience wrapper.
 func (s *Service) ExportLocationsToBytes(ctx context.Context) ([]byte, error) {
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheet := "Locations"
+	f.SetSheetName("Sheet1", sheet)
+
+	f.SetCellValue(sheet, "A1", "Zone")
+	f.SetCellValue(sheet, "B1", "Rack")
+	f.SetCellValue(sheet, "C1", "Level")
+
+	cursor, err := s.locations.Find(ctx, bson.M{}, options.Find().SetSort(bson.D{{Key: "zone", Value: 1}, {Key: "rack", Value: 1}, {Key: "level", Value: 1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	row := 2
+	for cursor.Next(ctx) {
+		var l struct {
+			Zone, Rack, Level string
+		}
+		if err := cursor.Decode(&l); err != nil {
+			continue
+		}
+		f.SetCellValue(sheet, fmt.Sprintf("A%d", row), l.Zone)
+		f.SetCellValue(sheet, fmt.Sprintf("B%d", row), l.Rack)
+		f.SetCellValue(sheet, fmt.Sprintf("C%d", row), l.Level)
+		row++
+	}
+
 	var buf bytes.Buffer
-	if err := s.ExportLocations(ctx, &buf); err != nil {
+	if err := f.Write(&buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil

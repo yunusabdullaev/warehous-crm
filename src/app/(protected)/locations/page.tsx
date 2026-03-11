@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import api from "@/lib/api";
 import { can, getUser } from "@/lib/auth";
 import { toast } from "@/components/Toast";
-import CsvImportModal from "@/components/CsvImportModal";
+import ExcelImportModal from "@/components/ExcelImportModal";
 import LabelPreviewModal from "@/components/LabelPreviewModal";
 import type { Location, PaginatedResponse } from "@/lib/types";
 
@@ -70,13 +70,13 @@ export default function LocationsPage() {
         }
     };
 
-    const exportCsv = async () => {
+    const exportExcel = async () => {
         try {
             const res = await api.get("/export/locations", { responseType: "blob" });
             const url = URL.createObjectURL(new Blob([res.data]));
             const a = document.createElement("a");
             a.href = url;
-            a.download = `locations_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.csv`;
+            a.download = `locations_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.xlsx`;
             a.click();
             URL.revokeObjectURL(url);
             toast("success", "Locations exported");
@@ -94,11 +94,11 @@ export default function LocationsPage() {
                         <>
                             <button onClick={() => setShowImport(true)}
                                 className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm hover:bg-amber-600 transition">
-                                📥 Import CSV
+                                📥 Import Excel
                             </button>
-                            <button onClick={exportCsv}
+                            <button onClick={exportExcel}
                                 className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition">
-                                📤 Export CSV
+                                📤 Export Excel
                             </button>
                         </>
                     )}
@@ -112,11 +112,11 @@ export default function LocationsPage() {
             </div>
 
             {/* Import Modal */}
-            <CsvImportModal
+            <ExcelImportModal
                 open={showImport}
                 onClose={() => setShowImport(false)}
                 endpoint="/import/locations"
-                title="Import Locations CSV"
+                title="Import Locations Excel"
                 onDone={fetchLocations}
             />
 

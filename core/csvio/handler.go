@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// Handler handles CSV import/export HTTP endpoints.
+// Handler handles Excel import/export HTTP endpoints.
 type Handler struct {
 	service *Service
 }
@@ -17,7 +17,7 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
-// ImportProducts handles POST /import/products (multipart/form-data, field="file").
+// ImportProducts handles POST /import/products (multipart/form-data, field="file", .xlsx).
 func (h *Handler) ImportProducts(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -38,7 +38,7 @@ func (h *Handler) ImportProducts(c *fiber.Ctx) error {
 	return c.JSON(report)
 }
 
-// ImportLocations handles POST /import/locations (multipart/form-data, field="file").
+// ImportLocations handles POST /import/locations (multipart/form-data, field="file", .xlsx).
 func (h *Handler) ImportLocations(c *fiber.Ctx) error {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -59,28 +59,28 @@ func (h *Handler) ImportLocations(c *fiber.Ctx) error {
 	return c.JSON(report)
 }
 
-// ExportProducts handles GET /export/products → text/csv.
+// ExportProducts handles GET /export/products → application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
 func (h *Handler) ExportProducts(c *fiber.Ctx) error {
 	data, err := h.service.ExportProductsToBytes(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	filename := fmt.Sprintf("products_%s.csv", time.Now().Format("20060102_150405"))
-	c.Set("Content-Type", "text/csv; charset=utf-8")
+	filename := fmt.Sprintf("products_%s.xlsx", time.Now().Format("20060102_150405"))
+	c.Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	return c.Send(data)
 }
 
-// ExportLocations handles GET /export/locations → text/csv.
+// ExportLocations handles GET /export/locations → application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
 func (h *Handler) ExportLocations(c *fiber.Ctx) error {
 	data, err := h.service.ExportLocationsToBytes(c.Context())
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 	}
 
-	filename := fmt.Sprintf("locations_%s.csv", time.Now().Format("20060102_150405"))
-	c.Set("Content-Type", "text/csv; charset=utf-8")
+	filename := fmt.Sprintf("locations_%s.xlsx", time.Now().Format("20060102_150405"))
+	c.Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	return c.Send(data)
 }

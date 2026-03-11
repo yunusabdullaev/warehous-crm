@@ -393,7 +393,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		repR.Get("/returns", reportsHandler.ReturnsReport)
 		repR.Get("/expiry", reportsHandler.ExpiryReport)
 
-		// Import/Export
+		// Excel Import/Export
 		impR := protected.Group("/import", adminOnly)
 		impR.Post("/products", csvioHandler.ImportProducts)
 		impR.Post("/locations", csvioHandler.ImportLocations)

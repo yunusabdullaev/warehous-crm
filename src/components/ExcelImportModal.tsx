@@ -24,7 +24,7 @@ interface Props {
     onDone?: () => void;
 }
 
-export default function CsvImportModal({ open, onClose, endpoint, title, onDone }: Props) {
+export default function ExcelImportModal({ open, onClose, endpoint, title, onDone }: Props) {
     const [file, setFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -93,14 +93,14 @@ export default function CsvImportModal({ open, onClose, endpoint, title, onDone 
                                     </div>
                                 ) : (
                                     <div>
-                                        <p className="text-3xl mb-2">📄</p>
-                                        <p className="text-sm text-gray-500">Click to select CSV file</p>
+                                        <p className="text-3xl mb-2">📊</p>
+                                        <p className="text-sm text-gray-500">Click to select Excel file (.xlsx)</p>
                                     </div>
                                 )}
                                 <input
                                     ref={inputRef}
                                     type="file"
-                                    accept=".csv"
+                                    accept=".xlsx"
                                     className="hidden"
                                     onChange={(e) => setFile(e.target.files?.[0] || null)}
                                 />
