@@ -46,6 +46,7 @@ import (
 var (
 	app      *fiber.App
 	initOnce sync.Once
+	initErr  error
 )
 
 func Handler(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +59,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		client, err := database.Connect(cfg.MongoURI)
 		if err != nil {
 			slog.Error("failed to connect to mongo", "error", err)
+			initErr = err
 			return
 		}
 
@@ -374,10 +376,14 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 	// Final bridge
 	if app == nil {
-		slog.Error("app initialization failed - check MONGO_URI and connection")
+		errMsg := "Service Initialization Failed"
+		if initErr != nil {
+			errMsg = initErr.Error()
+		}
+		slog.Error("app initialization failed", "error", errMsg)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error":"Internal Server Error","message":"Service Initialization Failed. Check environment variables (MONGO_URI) and database connectivity."}`))
+		_, _ = w.Write([]byte(`{"error":"Internal Server Error","message":"` + errMsg + ` Check environment variables (MONGO_URI) and database connectivity."}`))
 		return
 	}
 
