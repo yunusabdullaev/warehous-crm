@@ -232,8 +232,9 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if corsOrigins == "" || corsOrigins == "*" {
-			// Fiber doesn't allow "*" with AllowCredentials: true.
-			// Using AllowOriginsFunc to allow any origin dynamically.
+			// Fiber panics if AllowOrigins is "" or "*" when AllowCredentials is true.
+			// Setting to a temporary string to bypass panic; AllowOriginsFunc will handle the real logic.
+			corsConfig.AllowOrigins = "https://placeholder.vercel.app"
 			corsConfig.AllowOriginsFunc = func(origin string) bool {
 				return true
 			}
@@ -241,6 +242,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			corsConfig.AllowOrigins = corsOrigins
 		}
 		app.Use(cors.New(corsConfig))
+
+		slog.Info("cors middleware initialized", "origins", corsOrigins)
 
 		api := app.Group("/api/v1")
 
