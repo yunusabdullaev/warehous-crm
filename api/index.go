@@ -226,20 +226,22 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		app = fiber.New()
 		app.Use(fiberRecover.New())
 
-		corsOrigins := os.Getenv("CORS_ORIGINS")
-		if corsOrigins == "" || corsOrigins == "*" {
-			// Allow both local development and production
-			corsOrigins = "http://localhost:3000,https://warehous-crm-6ikv.vercel.app"
-		}
-
+		// Dynamic CORS origins
 		app.Use(cors.New(cors.Config{
-			AllowOrigins:     corsOrigins,
+			AllowOriginsFunc: func(origin string) bool {
+				// Allow local development
+				if origin == "http://localhost:3000" || origin == "http://localhost:3001" {
+					return true
+				}
+				// Allow all vercel.app subdomains (including branch previews)
+				return strings.HasSuffix(origin, ".vercel.app")
+			},
 			AllowHeaders:     "Origin,Content-Type,Authorization,X-Warehouse-Id",
 			AllowMethods:     "GET,POST,PUT,DELETE,PATCH,OPTIONS",
 			AllowCredentials: true,
 		}))
 
-		slog.Info("cors middleware initialized", "origins", corsOrigins)
+		slog.Info("cors middleware initialized with dynamic origin function")
 
 		api := app.Group("/api/v1")
 
