@@ -1,7 +1,17 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
+const getBaseURL = () => {
+    if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+        return process.env.NEXT_PUBLIC_API_BASE_URL;
+    }
+    if (typeof window !== "undefined") {
+        return `${window.location.origin}/api/v1`;
+    }
+    return "http://localhost:3003/api/v1";
+};
+
 const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3003/api/v1",
+    baseURL: getBaseURL(),
     headers: { "Content-Type": "application/json" },
     timeout: 15000,
     withCredentials: true, // send cookies (wms_refresh, wms_access)

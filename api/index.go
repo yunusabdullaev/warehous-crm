@@ -228,7 +228,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 		corsOrigins := os.Getenv("CORS_ORIGINS")
 		if corsOrigins == "" || corsOrigins == "*" {
-			corsOrigins = "https://warehous-crm-6ikv.vercel.app" // Fallback to prodtuction URL
+			// Allow both local development and production
+			corsOrigins = "http://localhost:3000,https://warehous-crm-6ikv.vercel.app"
 		}
 
 		app.Use(cors.New(cors.Config{
@@ -237,7 +238,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 			AllowCredentials: true,
 		}))
 
-		slog.Info("cors middleware initialized - safe mode", "origins", corsOrigins)
+		slog.Info("cors middleware initialized - multi-origin mode", "origins", corsOrigins)
 
 		api := app.Group("/api/v1")
 
